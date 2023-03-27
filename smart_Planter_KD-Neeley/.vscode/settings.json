@@ -1,0 +1,9 @@
+{
+    "extensions.ignoreRecommendations": true,
+    "C_Cpp.default.configurationProvider": "particle.particle-vscode-core",
+    "files.associations": {
+        "*.ino": "cpp",
+        "__node_handle": "cpp",
+        "smart_planter_testcode": "cpp"
+    }
+}
