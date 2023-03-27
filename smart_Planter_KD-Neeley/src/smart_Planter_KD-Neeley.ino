@@ -500,6 +500,27 @@ void loop() {
           }
       }
       prevBlkBtnState = blkBtnState;
+
+      //PUBLISH WATER HISTORY TO DASHBOARD COMING SOON
+    
+      //DATE / CLOCK / LOCATION SETTINGS COMING SOON
+      //print time on OLED on right top
+      //print the date under the time on the OLED
+
+      //OUTSIDE TEMPERATURE SETTINGS COMING SOON
+      //use location settings to set the weather feed
+
+      //GROW LIGHT SETTINGS COMING SOON
+      //use time settings to set the grow light to turn on at sunset
+      //use time settings to set the grow light to turn off at sunrise
+
+      //CALENDAR SETTINGS COMING SOON
+      //need to learn how to import Google Calendar events for the current date
+      //print events on OLED main screen, scrolling text
+      //publish events to dashboard as text feed
+
+      //WIRELESS CAMERA SETTINGS COMING SOON
+      //need to learn how to display the camera feed on the dashboard
   }
 
 
