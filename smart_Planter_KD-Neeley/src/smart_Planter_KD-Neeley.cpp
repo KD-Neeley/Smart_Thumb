@@ -7,7 +7,7 @@
 /*
  * Project smart_Planter_KD-Neeley for the Smart Thumb : "Grow Your Life". A Smart Desk Lamp + Shelf + Planter
                                                         Keep your plants alive and stay on track
-                                                        Includes reactive shelf lights
+                                                        Includes Neopixel shelf lights w/brightness & color settings
  * Description: Utilize: 
  *                2N3906 Emitter Follower and Relay
  *                BME280
@@ -54,11 +54,12 @@ int pixelFill(int startPixel, int endPixel, int hexColor);
 int const OLED_RESET = D4;
 int const TOP = 1;
 int const LEFT = 1;
-int const BOTTOM = 60;
+int const BOTTOM = 50;
 int const RIGHT = 68;
 
 //Capacitive Soil Moisture Sensor
 int const CSMS = A0;
+
 //Encoder
 int const PINA = D3;
 int const PINB = D2;
@@ -104,16 +105,17 @@ bool status;
 int tempC;
 int tempC2;
 int tempF;
-char deg;
+float rtStartTime;
+float rtSampleTime;
 
 //Dust Sensor Variables
 float duration;
-float startTime;
-float sampletime_ms;
 float lowpulseoccupancy;
 float ratio;
 float concentration;
 float concentration2;
+float dsStartTime;
+float dsSampleTime;
 
 //Soil Moisture Sensor Variables
 float moistureReading;
@@ -122,6 +124,8 @@ float soilTime;
 float waterIf;
 float waterTime;
 int dashBlueBtnStatus;
+float smStartTime;
+float smSampleTime;
 
 //Black Button Variables
 bool blkBtnState;
@@ -131,6 +135,16 @@ bool prevBlkBtnState;
 //Air Quality Variables
 int airQualityQual; //Qualitative Air Quality Reading
 int airQualityQual2; //Qualitative Air Quality Comparison
+float aqStartTime;
+float aqSampleTime;
+
+//Timer variables
+bool roomTempTime;
+
+/****FUNCTION DECLARATIONS****/
+void MQTT_connect();
+bool MQTT_ping();
+int pixelFill(int startpixel, int endPixel, int hexColor);
 
 /****OBJECTS****/
 //MQTT and TCP Client for cloud
@@ -154,6 +168,8 @@ Button encBtn (ENCODERSWITCH);
 IoTTimer stopWatch;
 //NeoPixel Light Settings
 smartPixelPresets smartPixelColor;
+//Timers
+
 
 /****PUBLISH****/
 //Publish Air Quality Sensor Feed
@@ -181,17 +197,21 @@ Adafruit_MQTT_Subscribe roomTempFeedSub=Adafruit_MQTT_Subscribe(&mqtt, AIO_USERN
 //Subscribe to Dashbaord Blue Button (Green Toggle)
 Adafruit_MQTT_Subscribe dashBlueBtnFeed=Adafruit_MQTT_Subscribe(&mqtt, AIO_USERNAME"/feeds/smartthumb.bluebuttonfeed"); 
 
-/****FUNCTION DECLARATIONS****/
-void MQTT_connect();
-bool MQTT_ping();
-int pixelFill(int startpixel, int endPixel, int hexColor);
-
 
 /****SYSTEM MODE****/
 SYSTEM_MODE(SEMI_AUTOMATIC);
 
-
-
+//BUGS:
+//physical blue btn not turning on pump, possibly wire possibly not
+//black button not turning on/off neopixels, neopixels not on, could be wiring but maybe not
+//Encoder not lighting up, neopixels have no power, NONE of the encoder lights are on (could be wiring)
+//Encoder not turning brightness or fluctuating lights
+//Dust Sensor not reading anything
+//the degree symbol on the oled is a question mark
+//
+//fixing
+//need new statements for Encoder lights
+//need new timer settings for OLED display rotating messages
 
 
 
@@ -220,7 +240,7 @@ void setup() {
   //INITIALIZE OLED
   oled.begin(SSD1306_SWITCHCAPVCC, 0x3C);
   oled.clearDisplay();
-  oled.setRotation(0);
+  oled.setRotation(2);
   oled.setTextSize(1);
   oled.setTextColor(WHITE);
 
@@ -232,20 +252,21 @@ void setup() {
   pinMode(ENCODERSWITCH, INPUT_PULLDOWN);
   maxPos = 255;
   minPos = 0;  
-  position = 50;
+  position = myEnc.read();
 
   //INITIALIZE BME280
   Wire.begin();
   status=bme280Sensor.begin(BME280ADDRESS);
-  deg = 0xB0;
+  rtSampleTime = 30000;
+  rtStartTime = millis();
 
   //INITIALIZE DUST SENSOR
   pinMode(DUSTSENSORPIN, INPUT);
-  sampletime_ms = 60000;
   lowpulseoccupancy = 0;
   ratio = 0;
   concentration = 0;
-  startTime = millis();   
+  dsSampleTime = 40000;
+  dsStartTime = millis();   
 
   //INITIALIZE AIR QUALITY SENSOR
   Serial.println("Waiting for Air Quality Sensor to Initiate...");
@@ -257,6 +278,8 @@ void setup() {
     Serial.println("Sensor ERROR!");
   }
   delay(5000);
+  aqSampleTime = 50000;
+  aqStartTime = millis();
 
   //INITIALIZE WATER PUMP BASED ON SOIL MOISTURE
   waterIf = 2960;
@@ -264,8 +287,8 @@ void setup() {
   pinMode(PUMPPIN, OUTPUT);
 
   //INITIALIZE PUSH BUTTONS
-  pinMode(BLUEBTN, INPUT);
-  pinMode(BLKBTN, INPUT);
+  pinMode(BLUEBTN, INPUT_PULLDOWN);
+  pinMode(BLKBTN, INPUT_PULLDOWN);
 }
 
 
@@ -279,57 +302,55 @@ void loop() {
   MQTT_ping();
 
  Adafruit_MQTT_Subscribe *subscription; 
-  while ((subscription = mqtt.readSubscription(100))) {
+ subscription = mqtt.readSubscription(100);
 
-    //GET ROOM TEMPERATURE FROM BME280
-    if(status == false) {
-        Serial.printf("BME280 at address 0x%02X failed to start", BME280ADDRESS);
-      }
-    tempC=bme280Sensor.readTemperature(); //deg Celsius
-    tempC2 = tempC;
-    tempC=bme280Sensor.readTemperature();
-    tempF = map(tempC, 0,100,32,212);//CONVERT CELSIUS TO FARENHEIT
-    //Only print if the data changes
-    if(tempC != tempC2) {
-      //PRINT TO SERIAL MONITOR
-      Serial.printf("Room Temp %i%c\n", tempF, deg);
-      //PRINT TO OLED
-      oled.setCursor(LEFT,TOP);
-      oled.printf("Room Temp %i%c\n", tempF, deg);
-      oled.display();
-      //PUBLISH TO DASHBOARD
-      roomTempFeed.publish(tempF);
-    }
+  //GET ROOM TEMPERATURE FROM BME280
+  if(status == false) {
+    Serial.printf("BME280 at address 0x%02X failed to start", BME280ADDRESS);
+  }
+  tempC=bme280Sensor.readTemperature(); //deg Celsius
+  tempF = map(tempC, 0,100,32,212);//CONVERT CELSIUS TO FARENHEIT
+  //PRINT TO SERIAL MONITOR
+  Serial.printf("Room Temp %iF\n", tempF);
+  //PRINT TO OLED
+  oled.setCursor(LEFT,TOP);
+  oled.printf("Room Temp%iF\n", tempF);
+  oled.display();
+  if((millis()-rtStartTime) > rtSampleTime){
+    rtStartTime = millis();
+    roomTempFeed.publish(tempF);
+  }
+   
+   
+    
+      
+      
+      
+      
+
+  
 
 
     //SOIL MOISTURE SENSOR
     //GET READING
     moistureReading = analogRead(CSMS);
-    moistureReading2 =moistureReading;
-    moistureReading = analogRead(CSMS);
-    //publish only if reading changes
-    if(moistureReading != moistureReading2) {
+   //publish every 30 seconds
+    if((millis()-smStartTime) > smSampleTime){
       //PUBLISH TO DASHBOARD
+      smStartTime = millis();
       soilMoistureFeed.publish(CSMS);
-      //PRINT TO SERIAL MONITOR AND SET ENCODER LIGHTS
-      if(moistureReading >= 2967) {
-        Serial.printf("Soil is Dry: %f\n", moistureReading);
-        digitalWrite(ENCBLUE, LOW);
-        digitalWrite(ENCGRN, LOW);
-        digitalWrite(ENCRED, HIGH);
-      }
-      if(moistureReading > 1941 && moistureReading < 2967) {
-        Serial.printf("Soil is Damp: %f\n", moistureReading);
-        digitalWrite(ENCRED, LOW);
-        digitalWrite(ENCBLUE, LOW);
-        digitalWrite(ENCGRN, HIGH);
-      }
-      if(moistureReading <= 1941) {
-        Serial.printf("Soil is wet: %f\n", moistureReading);
-        digitalWrite(ENCRED, LOW);
-        digitalWrite(ENCBLUE, LOW);
-        digitalWrite(ENCGRN, HIGH);
-      }
+    }
+    //PRINT TO SERIAL MONITOR AND SET ENCODER LIGHTS
+    if(moistureReading >= 2967) {
+      Serial.printf("Soil is Dry: %f\n", moistureReading);
+    }
+    if(moistureReading > 1941 && moistureReading < 2967) {
+      Serial.printf("Soil is Damp: %f\n", moistureReading);
+    }
+    if(moistureReading <= 1941) {
+      Serial.printf("Soil is wet: %f\n", moistureReading);
+    }
+
       //PRINT TO OLED
       oled.setCursor(LEFT,BOTTOM);
       if(moistureReading >= 2967) {
@@ -342,10 +363,9 @@ void loop() {
         oled.printf("Soil is wet: %f", moistureReading);
       }
       oled.display();
-      stopWatch.startTimer(7000);
-      stopWatch.isTimerReady();
       oled.clearDisplay();
-    }
+
+
     //TURN PUMP ON, AUTOMATICALLY WATER IF SOIL IS GETTING DRY
     //SET ENCODER LIGHTS FOR WATER STATUS
     if((millis()-soilTime > waterTime)) {
@@ -355,8 +375,6 @@ void loop() {
         digitalWrite(ENCGRN, LOW);
         digitalWrite(ENCRED, LOW);
         digitalWrite(ENCBLUE, HIGH);
-
-      
       }
       if((moistureReading < waterIf)) {
         digitalWrite(PUMPPIN, LOW);
@@ -404,8 +422,6 @@ void loop() {
     //AIR QUALITY SENSOR
     //GET READING
     airQualityQual = aqSensor.slope();
-    airQualityQual2 = airQualityQual;
-    airQualityQual = aqSensor.slope();
     //Get Qualitative Value for Air Quality Sensor
     if (airQualityQual == AirQualitySensor::FORCE_SIGNAL) {
       Serial.printf("High pollution! Force signal active.\n");
@@ -419,10 +435,15 @@ void loop() {
     else if (airQualityQual == AirQualitySensor::FRESH_AIR) {
       Serial.printf("Fresh air.\n");
     }
-    //only publish to Dashboard If Air Quality Changes
-    if(airQualityQual != airQualityQual2) {
+    //only publish every 30 seconds
+    if((millis()-aqStartTime) > aqSampleTime) {
+      aqStartTime=millis();
       airQualityFeed.publish(airQualityQual);
+      
     }
+  
+    
+   
     //Display Air Quality on OLED
     oled.setCursor(LEFT,BOTTOM);
     if (airQualityQual == AirQualitySensor::FORCE_SIGNAL) {
@@ -446,22 +467,21 @@ void loop() {
     //DUST SENSOR
     duration = pulseIn(DUSTSENSORPIN, LOW);
     lowpulseoccupancy = lowpulseoccupancy+duration;
-    if((millis()-startTime) > sampletime_ms){
+    //only publish every 30 seconds
+    if((millis()-dsStartTime) > dsSampleTime){
+       dsStartTime = millis();
       //integer percentage 0=>100
-      ratio=lowpulseoccupancy/(sampletime_ms*10.0);
+      ratio=lowpulseoccupancy/(dsSampleTime * 10.0);
       //Using spec sheet curve by Christopher Nafis
       concentration = 1.1*pow(ratio, 3)*pow(ratio,2)+520+ratio+0.62;
-      concentration2 = concentration;
-      concentration = 1.1*pow(ratio, 3)*pow(ratio,2)+520+ratio+0.62;
-      //only publish if concentration changes
-      if(concentration != concentration2) {
-        dustParticleFeed.publish(concentration);
-      }
+      dustParticleFeed.publish(concentration);
       //reset
       lowpulseoccupancy =0;
-      startTime = millis();
+      oled.setCursor(LEFT,BOTTOM);
+      oled.printf("Particles: %f\n", concentration);
+      oled.clearDisplay();
     }
-
+ 
 
 
     //NEOPIXEL SETTINGS
@@ -494,6 +514,8 @@ void loop() {
 
     //toggle neopixels on/off with Black Button
     blkBtnState = digitalRead(BLKBTN);
+    prevBlkBtnState =blkBtnState;
+    blkBtnState = digitalRead(BLKBTN);
       if(blkBtnState != prevBlkBtnState) {
             if(blkBtnState) {
             onOff =!onOff;
@@ -510,7 +532,28 @@ void loop() {
           }
       }
       prevBlkBtnState = blkBtnState;
-  }
+
+      //PUBLISH WATER HISTORY TO DASHBOARD COMING SOON
+    
+      //DATE / CLOCK / LOCATION SETTINGS COMING SOON
+      //print time on OLED on right top
+      //print the date under the time on the OLED
+
+      //OUTSIDE TEMPERATURE SETTINGS COMING SOON
+      //use location settings to set the weather feed
+
+      //GROW LIGHT SETTINGS COMING SOON
+      //use time settings to set the grow light to turn on at sunset
+      //use time settings to set the grow light to turn off at sunrise
+
+      //CALENDAR SETTINGS COMING SOON
+      //need to learn how to import Google Calendar events for the current date
+      //print events on OLED main screen, scrolling text
+      //publish events to dashboard as text feed
+
+      //WIRELESS CAMERA SETTINGS COMING SOON
+      //need to learn how to display the camera feed on the dashboard
+
 
 
 }
