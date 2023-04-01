@@ -265,7 +265,7 @@ void setup() {
   lowpulseoccupancy = 0;
   ratio = 0;
   concentration = 0;
-  dsSampleTime = 40000;
+  dsSampleTime = 30000;
   dsStartTime = millis();   
 
   //INITIALIZE AIR QUALITY SENSOR
@@ -278,13 +278,15 @@ void setup() {
     Serial.println("Sensor ERROR!");
   }
   delay(5000);
-  aqSampleTime = 50000;
+  aqSampleTime = 30000;
   aqStartTime = millis();
 
   //INITIALIZE WATER PUMP BASED ON SOIL MOISTURE
   waterIf = 2960;
   waterTime = 5000;
   pinMode(PUMPPIN, OUTPUT);
+  smSampleTime = 30000;
+  smStartTime = millis();
 
   //INITIALIZE PUSH BUTTONS
   pinMode(BLUEBTN, INPUT_PULLDOWN);
@@ -310,15 +312,15 @@ void loop() {
   }
   tempC=bme280Sensor.readTemperature(); //deg Celsius
   tempF = map(tempC, 0,100,32,212);//CONVERT CELSIUS TO FARENHEIT
-  //PRINT TO SERIAL MONITOR
-  Serial.printf("Room Temp %iF\n", tempF);
-  //PRINT TO OLED
-  oled.setCursor(LEFT,TOP);
-  oled.printf("Room Temp%iF\n", tempF);
-  oled.display();
   if((millis()-rtStartTime) > rtSampleTime){
     rtStartTime = millis();
     roomTempFeed.publish(tempF);
+    //PRINT TO SERIAL MONITOR
+    Serial.printf("Room Temp %iF\n", tempF);
+    //PRINT TO OLED
+    oled.setCursor(LEFT,TOP);
+    oled.printf("Room Temp%iF\n", tempF);
+    oled.display();
   }
    
    
@@ -339,18 +341,16 @@ void loop() {
       //PUBLISH TO DASHBOARD
       smStartTime = millis();
       soilMoistureFeed.publish(CSMS);
-    }
-    //PRINT TO SERIAL MONITOR AND SET ENCODER LIGHTS
-    if(moistureReading >= 2967) {
-      Serial.printf("Soil is Dry: %f\n", moistureReading);
-    }
-    if(moistureReading > 1941 && moistureReading < 2967) {
-      Serial.printf("Soil is Damp: %f\n", moistureReading);
-    }
-    if(moistureReading <= 1941) {
-      Serial.printf("Soil is wet: %f\n", moistureReading);
-    }
-
+      //PRINT TO SERIAL MONITOR AND SET ENCODER LIGHTS
+      if(moistureReading >= 2967) {
+        Serial.printf("Soil is Dry: %f\n", moistureReading);
+      }
+      if(moistureReading > 1941 && moistureReading < 2967) {
+        Serial.printf("Soil is Damp: %f\n", moistureReading);
+      }
+      if(moistureReading <= 1941) {
+        Serial.printf("Soil is wet: %f\n", moistureReading);
+      }
       //PRINT TO OLED
       oled.setCursor(LEFT,BOTTOM);
       if(moistureReading >= 2967) {
@@ -363,7 +363,10 @@ void loop() {
         oled.printf("Soil is wet: %f", moistureReading);
       }
       oled.display();
+      delay(3000);
       oled.clearDisplay();
+    }
+  
 
 
     //TURN PUMP ON, AUTOMATICALLY WATER IF SOIL IS GETTING DRY
@@ -420,48 +423,47 @@ void loop() {
   
 
     //AIR QUALITY SENSOR
-    //GET READING
-    airQualityQual = aqSensor.slope();
-    //Get Qualitative Value for Air Quality Sensor
-    if (airQualityQual == AirQualitySensor::FORCE_SIGNAL) {
-      Serial.printf("High pollution! Force signal active.\n");
-    }
-    else if (airQualityQual == AirQualitySensor::HIGH_POLLUTION) {
-      Serial.printf("High pollution!\n");
-    }
-    else if (airQualityQual == AirQualitySensor::LOW_POLLUTION) {
-      Serial.printf("Low pollution!\n");
-    }
-    else if (airQualityQual == AirQualitySensor::FRESH_AIR) {
-      Serial.printf("Fresh air.\n");
-    }
     //only publish every 30 seconds
     if((millis()-aqStartTime) > aqSampleTime) {
       aqStartTime=millis();
+    //GET READING
+      airQualityQual = aqSensor.slope();
+      //Get Qualitative Value for Air Quality Sensor
+      if (airQualityQual == AirQualitySensor::FORCE_SIGNAL) {
+        Serial.printf("High pollution! Force signal active.\n");
+      }
+      else if (airQualityQual == AirQualitySensor::HIGH_POLLUTION) {
+        Serial.printf("High pollution!\n");
+      }
+      else if (airQualityQual == AirQualitySensor::LOW_POLLUTION) {
+        Serial.printf("Low pollution!\n");
+      }
+      else if (airQualityQual == AirQualitySensor::FRESH_AIR) {
+        Serial.printf("Fresh air.\n");
+      }
       airQualityFeed.publish(airQualityQual);
-      
+       //Display Air Quality on OLED
+      oled.setCursor(LEFT,BOTTOM);
+      if (airQualityQual == AirQualitySensor::FORCE_SIGNAL) {
+        oled.printf("High pollution! Force signal active.");
+      }
+      else if (airQualityQual == AirQualitySensor::HIGH_POLLUTION) {
+        oled.printf("High pollution!");
+      }
+      else if (airQualityQual == AirQualitySensor::LOW_POLLUTION) {
+        oled.printf("Low pollution!");
+      }
+      else if (airQualityQual == AirQualitySensor::FRESH_AIR) {
+        oled.printf("Fresh air.");
+      }
+      oled.display();
+      delay(3000);
+      oled.clearDisplay();
     }
   
     
    
-    //Display Air Quality on OLED
-    oled.setCursor(LEFT,BOTTOM);
-    if (airQualityQual == AirQualitySensor::FORCE_SIGNAL) {
-      oled.printf("High pollution! Force signal active.");
-    }
-    else if (airQualityQual == AirQualitySensor::HIGH_POLLUTION) {
-      oled.printf("High pollution!");
-    }
-    else if (airQualityQual == AirQualitySensor::LOW_POLLUTION) {
-      oled.printf("Low pollution!");
-    }
-    else if (airQualityQual == AirQualitySensor::FRESH_AIR) {
-      oled.printf("Fresh air.");
-    }
-    oled.display();
-    stopWatch.startTimer(7000);
-    stopWatch.isTimerReady();
-    oled.clearDisplay();
+   
 
 
     //DUST SENSOR
@@ -475,10 +477,12 @@ void loop() {
       //Using spec sheet curve by Christopher Nafis
       concentration = 1.1*pow(ratio, 3)*pow(ratio,2)+520+ratio+0.62;
       dustParticleFeed.publish(concentration);
+      Serial.printf("Dust Reads %f", concentration);
       //reset
       lowpulseoccupancy =0;
       oled.setCursor(LEFT,BOTTOM);
       oled.printf("Particles: %f\n", concentration);
+      delay(3000);
       oled.clearDisplay();
     }
  
@@ -491,30 +495,11 @@ void loop() {
     pixel.setBrightness(brightness);
     pixel.show();
 
-    //Set Custom Color from Dashboard Color Picker
-    if (subscription == &neoPixelColorFeed) {
-      Serial.printf("The Color is = %s\n", (char *)neoPixelColorFeed.lastread);
-      memcpy(buf, &neoPixelColorFeed.lastread[1], 6); //strip off the '#'
-      Serial.printf("Buffer: %s\n", (char *)buf);
-      color = strtol((char *)buf, NULL, 16); // convert string to int (hex)
-      Serial.printf("Buffer: 0x%02X \n", color);
-      for(int i=0; i<PIXELCOUNT; i++) {
-        pixel.setPixelColor(i, color);
-        pixel.show();
-      }
-    }
-
-    //Cycle through array settings for neopixel colors
-    encSwitch = digitalRead(ENCODERSWITCH);
-    encSwitchBefore = encSwitch;
-    encSwitch = digitalRead(ENCODERSWITCH);
-    if (encSwitch != encSwitchBefore) {
-      smartPixelColor.goToNext();
-    }
+   
 
     //toggle neopixels on/off with Black Button
     blkBtnState = digitalRead(BLKBTN);
-    prevBlkBtnState =blkBtnState;
+    prevBlkBtnState = blkBtnState;
     blkBtnState = digitalRead(BLKBTN);
       if(blkBtnState != prevBlkBtnState) {
             if(blkBtnState) {
@@ -522,7 +507,29 @@ void loop() {
             }
         if(onOff) {
          //on
-         pixel.setBrightness(brightness);
+        //  brightness = myEnc.read();
+        //  pixel.setBrightness(brightness);
+        //Cycle through array settings for neopixel colors
+        // encSwitch = digitalRead(ENCODERSWITCH);
+        // encSwitchBefore = encSwitch;
+        // encSwitch = digitalRead(ENCODERSWITCH);
+        // if (encSwitch != encSwitchBefore) {
+        //   smartPixelColor.goToNext();
+        // }
+                        //Set Custom Color from Dashboard Color Picker
+        //   if (subscription == &neoPixelColorFeed) {
+        //     Serial.printf("The Color is = %s\n", (char *)neoPixelColorFeed.lastread);
+        //     memcpy(buf, &neoPixelColorFeed.lastread[1], 6); //strip off the '#'
+        //     Serial.printf("Buffer: %s\n", (char *)buf);
+        //     color = strtol((char *)buf, NULL, 16); // convert string to int (hex)
+        //     Serial.printf("Buffer: 0x%02X \n", color);
+        //   for(int i=0; i<PIXELCOUNT; i++) {
+        //     pixel.setPixelColor(i, color);
+        //     pixel.show();
+        //   }
+        // }
+        pixel.setBrightness(50);
+        pixel.setPixelColor(0, fullred);
          pixel.show();
         }
         if(!onOff){
